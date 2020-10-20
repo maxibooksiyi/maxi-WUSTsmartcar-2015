@@ -1,0 +1,76 @@
+C51 COMPILER V9.01   FLASH                                                                 11/10/2015 09:09:38 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE FLASH
+OBJECT MODULE PLACED IN flash.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE flash.c BROWSE DEBUG OBJECTEXTEND
+
+line level    source
+
+   1          #include "flash.h"
+   2          #include "STC12C5A60S2.H"
+   3          bit flag_2=0;//扇区字节读
+   4          void delay_ms(unsigned int ms)
+   5          {
+   6   1          unsigned int a;
+   7   1          while(ms)
+   8   1          {
+   9   2          a=1000;
+  10   2          while(a--){};
+  11   2          ms--;
+  12   2          }
+  13   1          return;
+  14   1      }
+  15          
+  16          unsigned char read(unsigned char adder_h,unsigned char adder_l)
+  17          {
+  18   1       unsigned char dat;
+  19   1       IAP_ADDRH=adder_h;
+  20   1       IAP_ADDRL=adder_l;
+  21   1       IAP_CONTR=0x82;
+  22   1       IAP_CMD=0x01;
+  23   1       IAP_TRIG=0x5a;
+  24   1       IAP_TRIG=0xa5;
+  25   1      // nop;
+  26   1       dat=IAP_DATA;
+  27   1       return dat;
+  28   1      }
+  29          //扇区字节写
+  30          void write(unsigned char adder_h,unsigned char adder_l,unsigned char dat)
+  31          {
+  32   1       IAP_DATA=dat;
+  33   1       IAP_ADDRH=adder_h;
+  34   1       IAP_ADDRL=adder_l;
+  35   1       IAP_CONTR=0x82;
+  36   1       IAP_CMD=0x02;
+  37   1       IAP_TRIG=0x5a;
+  38   1       IAP_TRIG=0xa5;
+  39   1      // nop;
+  40   1      }
+  41          void del(unsigned char adder_h,unsigned char adder_l)
+  42          {
+  43   1       IAP_ADDRH=adder_h;
+  44   1       IAP_ADDRL=adder_l;
+  45   1       IAP_CONTR=0x82;
+  46   1       IAP_CMD=0x03;
+  47   1       IAP_TRIG=0x5a;
+  48   1       IAP_TRIG=0xa5;
+  49   1      }
+  50          
+  51          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     81    ----
+C51 COMPILER V9.01   FLASH                                                                 11/10/2015 09:09:38 PAGE 2   
+
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

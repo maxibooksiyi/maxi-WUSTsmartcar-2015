@@ -1,0 +1,5 @@
+"SmartCar.obj",
+"key.obj",
+"nokia_5110.obj" 
+TO "SmartCar" 
+RAMSIZE(256) 
