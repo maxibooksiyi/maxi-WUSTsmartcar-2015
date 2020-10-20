@@ -1,0 +1,187 @@
+C51 COMPILER V9.01   KEY                                                                   11/15/2015 14:39:44 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE KEY
+OBJECT MODULE PLACED IN key.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE key.c BROWSE DEBUG OBJECTEXTEND
+
+line level    source
+
+   1          #include "key.h"
+   2          #include "nokia_5110.h"
+   3          #include "STC12C5A60S2.H"   
+   4          
+   5          sbit change_line = P1^4;        
+   6          sbit Add_1 = P1^5;      
+   7          sbit Sub_1 = P1^6; 
+   8          
+   9          extern char line_speed;
+  10          extern char bend_speed;
+  11          extern unsigned char differ_number;
+  12          extern char line_servo_p;
+  13          extern char line_servo_d;
+  14          extern char bend_servo_p;
+  15          extern char bend_servo_d;
+  16          
+  17                                                          
+  18                                  
+  19          
+  20          unsigned char line_num;
+  21          
+  22          void pre_show(void)
+  23          {
+  24   1        
+  25   1             LCD_write_english_string(0,0,"*");
+  26   1             LCD_write_english_string(10,0,"L_V:");
+  27   1                 LCD_write_char(65,0,line_speed);
+  28   1                 
+  29   1                 LCD_write_english_string(10,1,"B_V:");
+  30   1                 LCD_write_char(65,1,bend_speed);
+  31   1                 
+  32   1                 LCD_write_english_string(10,2,"D_N:");
+  33   1                 LCD_write_char(65,2,differ_number);
+  34   1       
+  35   1                 
+  36   1             LCD_write_english_string(10,3,"Line:");
+  37   1                 LCD_write_english_string(55,3,"Bend:");
+  38   1                 LCD_write_english_string(0,4,"P:");
+  39   1                 LCD_write_english_string(0,5,"D:");
+  40   1      
+  41   1      
+  42   1                 LCD_write_char(20,4,line_servo_p);      
+  43   1                 LCD_write_char(65,4,bend_servo_p);
+  44   1          
+  45   1                 LCD_write_char(20,5,line_servo_d);
+  46   1             LCD_write_char(65,5,bend_servo_d);
+  47   1      
+  48   1      }
+  49          
+  50          
+  51          /*********************************修改变量数值***********************************/
+  52          void change_value(unsigned char m,int i)
+  53          {  
+  54   1      
+  55   1             switch(m)
+C51 COMPILER V9.01   KEY                                                                   11/15/2015 14:39:44 PAGE 2   
+
+  56   1             {
+  57   2                      case 0: line_speed+=i;       
+  58   2                      LCD_clear_l(65,0);
+  59   2                      LCD_write_english_string(0,0,"*");
+  60   2                      LCD_write_char(65,0,line_speed); 
+  61   2                      break;
+  62   2      
+  63   2                      case 1: bend_speed+=i;       
+  64   2                      LCD_clear_l(65,1);
+  65   2                      LCD_write_english_string(0,1,"*");
+  66   2                      LCD_write_char(65,1,bend_speed); 
+  67   2                      break;
+  68   2      
+  69   2                          case 2: differ_number+=i;       
+  70   2                      LCD_clear_l(65,2);
+  71   2                      LCD_write_english_string(0,2,"*");
+  72   2                      LCD_write_char(65,2,differ_number); 
+  73   2                      break;
+  74   2      
+  75   2      
+  76   2                                      case 4: line_servo_p+=i;       
+  77   2                      LCD_clear_l(10,4);
+  78   2                      LCD_write_english_string(10,4,"*");
+  79   2                      LCD_write_char(20,4,line_servo_p); 
+  80   2                      break;
+  81   2      
+  82   2                                  case 5: bend_servo_p+=i;       
+  83   2                      LCD_clear_l(55,4);
+  84   2                      LCD_write_english_string(55,4,"*");
+  85   2                      LCD_write_char(65,4,bend_servo_p); 
+  86   2                      break;
+  87   2      
+  88   2                                      case 6: line_servo_d+=i;       
+  89   2                      LCD_clear_l(10,5);
+  90   2                      LCD_write_english_string(10,5,"*");
+  91   2                      LCD_write_char(20,5,line_servo_d); 
+  92   2                      break;
+  93   2      
+  94   2                                  case 7: bend_servo_d+=i;       
+  95   2                      LCD_clear_l(55,5);
+  96   2                      LCD_write_english_string(55,5,"*");
+  97   2                      LCD_write_char(65,5,bend_servo_d); 
+  98   2                      break;
+  99   2      
+ 100   2                                      default: break;
+ 101   2             }
+ 102   1          
+ 103   1           }
+ 104            
+ 105          /****************************************************
+ 106                               按键扫描函数
+ 107          *****************************************************/
+ 108          
+ 109          void KeyScan (void)
+ 110          {
+ 111   1       unsigned char num=0;                  
+ 112   1       if(~change_line)  //如果检测到低电平，说明按键按下
+ 113   1          {
+ 114   2                LCD_DLY_ms(10); //延时去抖，一般10-20ms
+ 115   2           if(~change_line)     //再次确认按键是否按下，没有按下则退出
+ 116   2                   {
+ 117   3             while(~change_line);//如果确认按下按键等待按键释放，没有释放则一直等待
+C51 COMPILER V9.01   KEY                                                                   11/15/2015 14:39:44 PAGE 3   
+
+ 118   3                      LCD_write_english_string(0,line_num," ");     
+ 119   3                         
+ 120   3                         if(line_num<7)    //行序号加操作    NOKIA最多显示6行，0~5
+ 121   3                       {
+ 122   4                               if(line_num==2) line_num=line_num+2;
+ 123   4                               else line_num++;
+ 124   4                               }
+ 125   3                         else
+ 126   3                             {line_num=0;LCD_clear();}
+ 127   3                      if(line_num<=2)   LCD_write_english_string(0,line_num,"*");
+ 128   3                      else if(line_num==4) {LCD_clear_l(0,4);LCD_write_english_string(0,4,"P:");LCD_write_english_string(10,4,
+             -"*");LCD_write_char(20,4,line_servo_p);LCD_write_char(65,4,bend_servo_p);}
+ 129   3                  else if(line_num==5) {LCD_clear_l(0,4);LCD_write_english_string(0,4,"P:");LCD_write_english_string(55
+             -,4,"*");LCD_write_char(20,4,line_servo_p);LCD_write_char(65,4,bend_servo_p);}
+ 130   3                      else if(line_num==6) {LCD_clear_l(0,5);LCD_write_english_string(0,5,"D:");LCD_write_english_string(10,5,
+             -"*");LCD_write_char(20,5,line_servo_d);LCD_write_char(65,5,bend_servo_d);}
+ 131   3                      else                 {LCD_clear_l(0,5);LCD_write_english_string(0,5,"D:");LCD_write_english_string(55,5,
+             -"*");LCD_write_char(20,5,line_servo_d);LCD_write_char(65,5,bend_servo_d);}
+ 132   3                       } 
+ 133   2                         
+ 134   2         }
+ 135   1                
+ 136   1      ////////////////////////对应参数加一///////////////////////////////////////////////////////
+ 137   1      if(~Add_1)  //如果检测到低电平，说明按键按下
+ 138   1          {
+ 139   2               LCD_DLY_ms(10); //延时去抖，一般10-20ms
+ 140   2           if(~Add_1)     //再次确认按键是否按下，没有按下则退出
+ 141   2                 {
+ 142   3              while(~Add_1);//如果确认按下按键等待按键释放，没有释放则一直等待
+ 143   3              change_value(line_num,1);  
+ 144   3                 }
+ 145   2                }
+ 146   1      /////////////////////////////////对应参数减一///////////////////////////////////////////////
+ 147   1      if(~Sub_1)  //如果检测到低电平，说明按键按下
+ 148   1         {
+ 149   2               LCD_DLY_ms(10);   //延时去抖，一般10-20ms
+ 150   2           if(~Sub_1)     //再次确认按键是否按下，没有按下则退出
+ 151   2                 {
+ 152   3              while(~Sub_1);//如果确认按下按键等待按键释放，没有释放则一直等待
+ 153   3              change_value(line_num,-1);
+ 154   3                       }
+ 155   2                }
+ 156   1                }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    775    ----
+   CONSTANT SIZE    =     37    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      1       3
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

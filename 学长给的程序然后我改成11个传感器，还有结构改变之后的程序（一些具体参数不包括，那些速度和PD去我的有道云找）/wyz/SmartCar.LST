@@ -1,0 +1,458 @@
+C51 COMPILER V9.01   SMARTCAR                                                              11/15/2015 14:39:43 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE SMARTCAR
+OBJECT MODULE PLACED IN SmartCar.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE SmartCar.c BROWSE DEBUG OBJECTEXTEND
+
+line level    source
+
+   1          #include "STC12C5A60S2.H"      //STC12C5A60S2的头文件
+   2          #include "nokia_5110.h"
+   3          #include "key.h"
+   4          #define uchar unsigned char    //宏定义
+   5          #define uint unsigned int
+   6          
+   7          #define T0_HIGH      0xff   //T0计时器寄存器初值
+   8          #define T0_LOW      0x5f //溢出计数160个，160*（1/16）定时周期10us
+   9                                      //为了保证主程序正常运行，定时器计数最好不要小于80个
+  10          
+  11          #define MOTOR_MAX_PWM_COUNT  100 //PWM计数器最大值 10us*100=1ms,1000Hz
+  12          #define SERVO_MAX_PWM_COUNT  1600//1300 63
+  13          
+  14                                        //注意，舵机打角过大会打在底盘上，请立即断电，以免损害舵机
+  15          
+  16          #define ERROR_HISTORY_NUM 5   //历史偏差记录个数
+  17          
+  18          
+  19          sbit LEFT_MOTOR_PWM_PORT=P3^7; // 电机PWM控制端口
+  20          sbit RIGHT_MOTOR_PWM_PORT=P3^6;
+  21          
+  22          sbit SERVO_PWM_PORT=P3^5;   //舵机PWM控制端口
+  23          
+  24          
+  25          bit control_period_finished=0; //控制周期结束标志位，控制周期选择20ms
+  26                                         //也可自己确定控制周期，但是要保证主程序在控制周期内可以运行完
+  27          
+  28          char motor_PWM_counter=0;//生成电机PWM的计数器
+  29          char left_motor_PWM=0;   //左右电机的PWM占空比 //由于数值在128以内，所以定义为char
+  30          char right_motor_PWM=0;
+  31          
+  32          int servo_PWM_counter=0;//生成舵机PWM的计数器
+  33          int servo_PWM=0;//舵机PWM //超过char型变量的范围
+  34          
+  35          int P2H=0;
+  36          sbit end=P1^7;
+  37          
+  38          int error=0;    //本次偏差
+  39          int error_history[ERROR_HISTORY_NUM]={0};  //历史偏差
+  40          
+  41          char line_speed=65;
+  42          char bend_speed=55;
+  43          unsigned char differ_number=10;
+  44          char line_servo_p=25;
+  45          char line_servo_d=60;
+  46          char bend_servo_p=28;
+  47          char bend_servo_d=70;
+  48          
+  49          char realspeed=0;//总速度
+  50          
+  51          int timecount=0;
+  52          int frequent=0;
+  53          int T0count=0;
+  54          int worse=0;
+  55          
+C51 COMPILER V9.01   SMARTCAR                                                              11/15/2015 14:39:43 PAGE 2   
+
+  56          void delay_ms(unsigned int ms)
+  57          {
+  58   1          unsigned int a;
+  59   1          while(ms)
+  60   1          {
+  61   2          a=1000;
+  62   2          while(a--){};
+  63   2          ms--;
+  64   2          }
+  65   1          return;
+  66   1      }
+  67          
+  68          unsigned char read(unsigned char adder_h,unsigned char adder_l)
+  69          {
+  70   1       unsigned char dat;
+  71   1       IAP_ADDRH=adder_h;
+  72   1       IAP_ADDRL=adder_l;
+  73   1       IAP_CONTR=0x82;
+  74   1       IAP_CMD=0x01;
+  75   1       IAP_TRIG=0x5a;
+  76   1       IAP_TRIG=0xa5;
+  77   1      // nop;
+  78   1       dat=IAP_DATA;
+  79   1       return dat;
+  80   1      }
+  81          
+  82          //扇区字节写
+  83          void write(unsigned char adder_h,unsigned char adder_l,unsigned char dat)
+  84          {
+  85   1       IAP_DATA=dat;
+  86   1       IAP_ADDRH=adder_h;
+  87   1       IAP_ADDRL=adder_l;
+  88   1       IAP_CONTR=0x82;
+  89   1       IAP_CMD=0x02;
+  90   1       IAP_TRIG=0x5a;
+  91   1       IAP_TRIG=0xa5;
+  92   1      // nop;
+  93   1      }
+  94          
+  95          void del(unsigned char adder_h,unsigned char adder_l)
+  96          {
+  97   1       IAP_ADDRH=adder_h;
+  98   1       IAP_ADDRL=adder_l;
+  99   1       IAP_CONTR=0x82;
+ 100   1       IAP_CMD=0x03;
+ 101   1       IAP_TRIG=0x5a;
+ 102   1       IAP_TRIG=0xa5;
+ 103   1      }
+ 104          
+ 105          void flash_store()//相关修改参数写入flash保存起来，方便调试,相关函数见flash.c
+ 106          {
+ 107   1      del(0x00,0x00);//将扇区初始化
+ 108   1      delay_ms(5);
+ 109   1      write(0x00,0x00,line_speed);
+ 110   1      delay_ms(5);
+ 111   1      write(0x00,0x01,bend_speed);
+ 112   1      delay_ms(5);
+ 113   1      write(0x00,0x02,differ_number);
+ 114   1      delay_ms(5);
+ 115   1      write(0x00,0x03,line_servo_p);
+ 116   1      delay_ms(5);
+ 117   1      write(0x00,0x04,line_servo_d);
+C51 COMPILER V9.01   SMARTCAR                                                              11/15/2015 14:39:43 PAGE 3   
+
+ 118   1      delay_ms(5);
+ 119   1      write(0x00,0x05,bend_servo_p);
+ 120   1      delay_ms(5);
+ 121   1      write(0x00,0x06,bend_servo_d);
+ 122   1      }
+ 123          
+ 124          void sys_init(void)    //系统初始化
+ 125          {
+ 126   1       //若flash已经有数据且不为0xff,将上次修改参数的数据赋给相应变量，避免首次flash里面无数据
+ 127   1      if(read(0x00,0x00)!=255)   line_speed=read(0x00,0x00);//        servo_P存储地址
+ 128   1      if(read(0x00,0x01)!=255)   bend_speed=read(0x00,0x01);//        servo_D存储地址
+ 129   1      if(read(0x00,0x02)!=255)   differ_number=read(0x00,0x02);//servo_middle存储地址
+ 130   1      if(read(0x00,0x00)!=255)   line_servo_p=read(0x00,0x03);//      servo_P存储地址
+ 131   1      if(read(0x00,0x01)!=255)   line_servo_d=read(0x00,0x04);//      servo_D存储地址
+ 132   1      if(read(0x00,0x02)!=255)   bend_servo_p=read(0x00,0x05);//servo_middle存储地址
+ 133   1      if(read(0x00,0x00)!=255)   bend_servo_d=read(0x00,0x06);//      servo_P存储地址
+ 134   1      
+ 135   1      
+ 136   1          //------IO口设置------------
+ 137   1          P0M1=0x00;                  //推挽输出
+ 138   1          P0M0=0xff;
+ 139   1          P0=0xff;   
+ 140   1      
+ 141   1          P1M1=0x00;          //       准双向口
+ 142   1          P1M0=0x00;
+ 143   1          P1=0xff;   //初始化为高电平 
+ 144   1              
+ 145   1              P2M1=0x00;  //指示灯，设置为输出
+ 146   1          P2M0=0x00;
+ 147   1          P2=0xff;
+ 148   1      
+ 149   1          P3M1=0x00;  //模拟PWM，设置为输出
+ 150   1          P3M0=0xf8;
+ 151   1           //P3=0x00;
+ 152   1              P3=0x0f;
+ 153   1      
+ 154   1          LEFT_MOTOR_PWM_PORT=0; //PWM口设为低电平，电机不转
+ 155   1          RIGHT_MOTOR_PWM_PORT=0;
+ 156   1          left_motor_PWM=0;    //占空比设置为0
+ 157   1          right_motor_PWM=0;
+ 158   1          servo_PWM=113;//舵机打角到中心
+ 159   1      
+ 160   1          //------定时器设置------------
+ 161   1          AUXR=AUXR | 0x80; //定时器0不分频
+ 162   1          TMOD=0x11;        //定时器方式1
+ 163   1          TH0=T0_HIGH;      //定时器赋初值
+ 164   1          TL0=T0_LOW ;
+ 165   1       
+ 166   1         //IT0=1;
+ 167   1      //      EX0=1;
+ 168   1          TR0=1;      //定时器运行
+ 169   1          ET0=1;      //开定时器中断
+ 170   1          EA=1;       //开总中断
+ 171   1      
+ 172   1      }
+ 173          //-----------------------------------------------------------------------
+ 174          int ABS(int i)    //绝对值函数
+ 175          {
+ 176   1          if (i>=0) return i;
+ 177   1          else return -i;
+ 178   1      }
+ 179          //-----------------------------------------------------------------------
+C51 COMPILER V9.01   SMARTCAR                                                              11/15/2015 14:39:43 PAGE 4   
+
+ 180          void delay(unsigned int i) //延时函数
+ 181          {
+ 182   1          unsigned char j;
+ 183   1          for(;i>0;i--)
+ 184   1              for(j=0;j<250;j++);
+ 185   1      }
+ 186          
+ 187          void getposition(void)
+ 188          
+ 189          {
+ 190   1             
+ 191   1                //P2H=(P2&0xff);
+ 192   1                //P2H=(P2H<<1);
+ 193   1                //P2H=P2H+(P1&0x01); 
+ 194   1                  P2H=(P1&0x07);//11个灯从左到右依次连接P1.2 P1.1 P1.0 P2.7 P2.6 P2.5 P2.4 P2.3 P2.2 P2.1 P2.0 
+ 195   1              
+ 196   1              //      P2H=(P2H<<3);
+ 197   1                              P2H=(P2H<<8);
+ 198   1              P2H=P2H+P2; 
+ 199   1              switch(P2H&0x7ff) 
+ 200   1             //switch(P2H&0x1ff)                                //改了之后需要加大worse .
+ 201   1                  {
+ 202   2                      case 0x400:     error=-11;worse/=2;       break;        //              010000000000
+ 203   2                      case 0x600:     error=-9;worse/=2;        break;        //              011000000000
+ 204   2                      case 0x200:     error=-7;worse/=2;        break;            //  001000000000
+ 205   2                      case 0x300: error=-6;worse/=2;    break;
+ 206   2      
+ 207   2                      case 0x100: error=-5;worse/=2;    break;
+ 208   2                      case 0x180: error=-4;worse/=2;    break;   //-7
+ 209   2                      case 0x080: error=-3;worse/=2;    break;        //6
+ 210   2                      case 0x0c0: error=-2;worse/=2;    break;        //5     
+ 211   2                      case 0x040: error=-1;worse/=2;    break;    //4      //left
+ 212   2              case 0x060: error=0;worse/=2;     break;                                                
+ 213   2                      case 0x020: error=0;worse/=2;     break;                                
+ 214   2                      case 0x030: error=0;worse/=2;     break;
+ 215   2                      
+ 216   2                                  
+ 217   2              case 0x010: error=1;worse/=2;     break;
+ 218   2                      
+ 219   2                                
+ 220   2              case 0x018: error=2;worse/=2;     break;            
+ 221   2              case 0x008: error=3;worse/=2;     break;           
+ 222   2              case 0x00c: error=4;worse/=2;     break;                  
+ 223   2              case 0x004: error=5;worse/=2;     break;              
+ 224   2              case 0x006: error=6;worse/=2;     break;       // right
+ 225   2              case 0x002: error=7;worse/=2;     break;            
+ 226   2              case 0x003: error=9;worse/=2;     break;       //7      
+ 227   2              case 0x001: error=11;worse/=2;    break;       //9    
+ 228   2                      
+ 229   2                      /*
+ 230   2                      case 0x400:     error=-25;worse/=2;       break;        //              010000000000
+ 231   2                      case 0x600:     error=-17;worse/=2;       break;        //              011000000000
+ 232   2                      case 0x200:     error=-13;worse/=2;       break;            //  001000000000
+ 233   2                      case 0x300: error=-8;worse/=2;    break;        //  001100000000
+ 234   2                      case 0x100: error=-6;worse/=2;    break;                        000100000000
+ 235   2                      case 0x180: error=-5;worse/=2;    break;   //-7         000110000000
+ 236   2                      case 0x080: error=-4;worse/=2;    break;        //6             000010000000
+ 237   2                      case 0x0c0: error=-3;worse/=2;    break;        //5             000011000000
+ 238   2                      case 0x040: error=-2;worse/=2;    break;    //4     000001000000                //left
+ 239   2              case 0x060: error=0;worse/=2;     break;            000001100000                                        
+ 240   2                      
+ 241   2                      case 0x020: error=0;worse/=2;     break;      //    000000100000        这个现在是中间值                        
+C51 COMPILER V9.01   SMARTCAR                                                              11/15/2015 14:39:43 PAGE 5   
+
+ 242   2                      
+ 243   2                      case 0x030: error=0;worse/=2;     break;
+ 244   2                      case 0x010: error=2;worse/=2;     break;
+ 245   2                      case 0x018: error=3;worse/=2;     break;            
+ 246   2              case 0x008: error=4;worse/=2;     break;           
+ 247   2              case 0x00c: error=5;worse/=2;     break;                  
+ 248   2              case 0x004: error=6;worse/=2;     break;              
+ 249   2              case 0x006: error=8;worse/=2;     break;       // right
+ 250   2              case 0x002: error=13;worse/=2;    break;            
+ 251   2              case 0x003: error=17;worse/=2;    break;       //7      
+ 252   2              case 0x001: error=25;worse/=2;    break;       //9    
+ 253   2                                                                                                                         */
+ 254   2                      case 0x000: error=error_history[ERROR_HISTORY_NUM-1];break;       //000000000 0x000  
+ 255   2              default: error=error_history[ERROR_HISTORY_NUM-1];worse++; break;    //其他情况时，保持上一次偏差
+ 256   2                      }
+ 257   1      
+ 258   1      } 
+ 259          
+ 260          int steer_value=0; 
+ 261          int steer_kp,steer_kd;  
+ 262          char line_count=0;    
+ 263          void servo_control(void) //舵机控制
+ 264          {
+ 265   1          char i=0;
+ 266   1            if(ABS(error)>=3) {steer_kp=bend_servo_p;steer_kd=bend_servo_d;}
+ 267   1            else {steer_kp=line_servo_p;steer_kd=line_servo_d;}//根据偏差计算舵机角度输出
+ 268   1      
+ 269   1          if(ABS(error-error_history[4])>=9) //如果两次的偏差过大，则保持上一次的偏差
+ 270   1              error=error_history[4];      //防止不确定情况（如红外管冲出跑道）造成的偏差跳变
+ 271   1           steer_value=(      steer_kp*error    //比例
+ 272   1                         + steer_kd*(error-error_history[4])//微分
+ 273   1                     )/10;   
+ 274   1      //根据偏差计算舵机角度输出
+ 275   1           servo_PWM = 113+steer_value ;
+ 276   1      
+ 277   1          if(servo_PWM>=158)      //限幅
+ 278   1              servo_PWM=158;     //防止舵机超过极限值
+ 279   1          if(servo_PWM<=83)
+ 280   1              servo_PWM=83;
+ 281   1      
+ 282   1        for(i=0;i<ERROR_HISTORY_NUM-1;i++)    //记录偏差
+ 283   1          {
+ 284   2              error_history[i]=error_history[i+1];
+ 285   2          }
+ 286   1          error_history[ERROR_HISTORY_NUM-1]=error;
+ 287   1      
+ 288   1            
+ 289   1         if(ABS(steer_value)<=6)  line_count++;
+ 290   1         else line_count=0;
+ 291   1      
+ 292   1         if(line_count>=10) line_count=10;
+ 293   1                 
+ 294   1         if(steer_value>=35)  steer_value=35;
+ 295   1         if(steer_value<=-35) steer_value=-35;
+ 296   1      
+ 297   1      
+ 298   1      }
+ 299          
+ 300          
+ 301          
+ 302          void motor_control(void) //电机控制
+ 303          {
+C51 COMPILER V9.01   SMARTCAR                                                              11/15/2015 14:39:43 PAGE 6   
+
+ 304   1          if(line_count>=8) realspeed=line_speed;
+ 305   1              else 
+ 306   1              {
+ 307   2              if(ABS(error)<=2) realspeed=bend_speed;
+ 308   2              else  realspeed=bend_speed-8;
+ 309   2              }
+ 310   1              
+ 311   1              left_motor_PWM=realspeed+(int)((float)(differ_number/10.0)*steer_value);;   //速度控制
+ 312   1          right_motor_PWM=realspeed-(int)((float)(differ_number/10.0)*steer_value);;  //可以直接给定，也可以根据
+             -赛道情况计算得出
+ 313   1      
+ 314   1          //if(worse>=30)                //改成11个管子了，须加大worse
+ 315   1              if(worse>=75)   
+ 316   1              {
+ 317   2              left_motor_PWM=0;
+ 318   2          right_motor_PWM=0;
+ 319   2              }
+ 320   1      
+ 321   1          if(left_motor_PWM>100)   //限幅
+ 322   1              left_motor_PWM=100;
+ 323   1          if(left_motor_PWM<0)
+ 324   1              left_motor_PWM=0;
+ 325   1      
+ 326   1          if(right_motor_PWM>100)
+ 327   1              right_motor_PWM=100;
+ 328   1          if(right_motor_PWM<0)
+ 329   1              right_motor_PWM=0;
+ 330   1      }
+ 331          
+ 332          //-----------------------------------------------------------------------
+ 333          void main(void)
+ 334          {       
+ 335   1          sys_init();
+ 336   1          LCD_init();
+ 337   1              pre_show();
+ 338   1          P1=0xff;
+ 339   1          
+ 340   1              while(end)
+ 341   1          {
+ 342   2              KeyScan();
+ 343   2                      pre_show();
+ 344   2                      if(~end)  //如果检测到低电平，说明按键按下
+ 345   2           {
+ 346   3               LCD_DLY_ms(10);   //延时去抖，一般10-20ms
+ 347   3             if(~end)     //再次确认按键是否按下，没有按下则退出
+ 348   3                   {
+ 349   4              while(~end);//如果确认按下按键等待按键释放，没有释放则一直等待
+ 350   4              end=0;
+ 351   4                      flash_store();
+ 352   4                       }
+ 353   3                }
+ 354   2      
+ 355   2          }
+ 356   1          while(1)
+ 357   1          {   
+ 358   2                  
+ 359   2              getposition();    //判断黑线位置
+ 360   2                  P2=0xff;
+ 361   2              servo_control();
+ 362   2                      motor_control();         //控制电机     
+ 363   2          }
+ 364   1                  
+C51 COMPILER V9.01   SMARTCAR                                                              11/15/2015 14:39:43 PAGE 7   
+
+ 365   1      
+ 366   1      
+ 367   1      }
+ 368          
+ 369          //void exint0() interrupt 0  //interrupt 0 (location at 0003H)
+ 370          //{
+ 371          //   T0count++;  
+ 372          //}
+ 373                          
+ 374          
+ 375          void TIME_BASE(void) interrupt 1 using 1   //定时器生成PWM  //不清楚的可以参考PWM的定义
+ 376          {
+ 377   1          TH0=T0_HIGH;        //赋初值
+ 378   1          TL0=T0_LOW ;
+ 379   1      
+ 380   1          motor_PWM_counter++;  //计数器+1 ,每+1表示10us
+ 381   1          servo_PWM_counter=servo_PWM_counter+1;
+ 382   1      
+ 383   1          if(motor_PWM_counter>100)   //PWM比较、生成
+ 384   1          {
+ 385   2              motor_PWM_counter=1; //从1开始计数
+ 386   2          }
+ 387   1          if(servo_PWM_counter>SERVO_MAX_PWM_COUNT)   //PWM比较、生成
+ 388   1          {
+ 389   2      
+ 390   2              servo_PWM_counter=1; //从1开始计数
+ 391   2              control_period_finished=1;  //20ms控制周期到达，标志位置1，这里借用了舵机控制周期20ms（50Hz），
+ 392   2                                  //如果更改主程序控制周期，可定义一个类似于servo_PWM_counter的计数器计时
+ 393   2                //  timecount++;
+ 394   2          }
+ 395   1      
+ 396   1          if(left_motor_PWM>=motor_PWM_counter)   //左右PWM
+ 397   1              LEFT_MOTOR_PWM_PORT=1;  //端口输出高电平
+ 398   1          else
+ 399   1              LEFT_MOTOR_PWM_PORT=0;  //端口输出低电平
+ 400   1      
+ 401   1      
+ 402   1          if(right_motor_PWM>=motor_PWM_counter)   //左右PWM
+ 403   1              RIGHT_MOTOR_PWM_PORT=1;  //端口输出高电平
+ 404   1          else
+ 405   1              RIGHT_MOTOR_PWM_PORT=0;  //端口输出低电平
+ 406   1      
+ 407   1          if(servo_PWM>=servo_PWM_counter)//舵机PWM
+ 408   1              SERVO_PWM_PORT=1;
+ 409   1          else
+ 410   1              SERVO_PWM_PORT=0;
+ 411   1                      
+ 412   1              
+ 413   1      //if(timecount==5) 
+ 414   1        //  { 
+ 415   1        ////   frequent=T0count;
+ 416   1        //   T0count=0;
+ 417   1       //    timecount=0;
+ 418   1               //backspeed=frequent*20;
+ 419   1           //}
+ 420   1         }    
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1405    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+C51 COMPILER V9.01   SMARTCAR                                                              11/15/2015 14:39:43 PAGE 8   
+
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     44       1
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
